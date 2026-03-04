@@ -1,2 +1,6 @@
 .env.local
 instructions.txt
+__pycache__/
+*.pyc
+.venv/
+.venv-1/
