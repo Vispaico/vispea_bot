@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
+
+import httpx
+
+
+GAMMA_API_BASE = "https://gamma-api.polymarket.com"
 
 
 @dataclass
@@ -34,9 +40,102 @@ def get_polymarket_config() -> Optional[PolymarketConfig]:
     )
 
 
+async def _fetch_active_markets(limit: int = 50) -> List[dict]:
+    """
+    Fetch active, open markets from Gamma API.
+
+    Uses /markets endpoint with filters for active/closed. [web:248][web:259]
+    """
+    params = {
+        "active": True,
+        "closed": False,
+        "archived": False,
+        "limit": limit,
+        "order": "volume24hr",
+        "ascending": False,
+    }
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(f"{GAMMA_API_BASE}/markets", params=params)
+        resp.raise_for_status()
+        return resp.json()  # list of markets
+
+
+def _parse_outcome_prices(market: dict) -> Optional[list]:
+    """
+    Outcome prices come as a JSON-stringified list under 'outcomePrices'. [web:160]
+    Returns list of floats or None.
+    """
+    prices_raw = market.get("outcomePrices")
+    if not prices_raw:
+        return None
+    try:
+        prices = json.loads(prices_raw)
+        return [float(p) for p in prices]
+    except Exception:
+        return None
+
+
 async def scan_polymarket_arbitrage() -> str:
-    """Stub: will scan Polymarket markets for arbitrage opportunities."""
-    return "📊 Polymarket arb scanner not implemented yet."
+    """
+    Basic arb scanner:
+    - Fetches top active markets by 24h volume.
+    - Looks for markets where sum(outcomePrices) < 0.98 (potential edge).
+    - Returns a human-readable summary for Telegram. [web:150][web:255]
+    """
+    try:
+        markets = await _fetch_active_markets(limit=100)
+    except Exception as exc:
+        return f"⚠️ Error fetching Polymarket markets: {exc}"
+
+    candidates = []
+
+    for m in markets:
+        prices = _parse_outcome_prices(m)
+        if not prices:
+            continue
+
+        total = sum(prices)
+        edge = 1.0 - total  # > 0 means potential mispricing
+
+        # Filter for “interesting” markets
+        if edge <= 0.02:  # at least 2% theoretical edge
+            continue
+
+        question = m.get("question") or m.get("slug") or "Unknown market"
+        volume = float(m.get("volume24hr", 0.0))
+        market_id = m.get("marketId") or m.get("id") or ""
+
+        candidates.append(
+            {
+                "question": question,
+                "edge": edge,
+                "total": total,
+                "volume": volume,
+                "market_id": market_id,
+                "prices": prices,
+            }
+        )
+
+    if not candidates:
+        return "📊 No obvious Polymarket arb opportunities (sum of odds < 0.98) found right now."
+
+    # Sort by edge desc, then by volume desc
+    candidates.sort(key=lambda x: (x["edge"], x["volume"]), reverse=True)
+    top = candidates[:5]
+
+    lines = ["📊 Polymarket potential arb candidates (theoretical):\n"]
+    for c in top:
+        edge_pct = c["edge"] * 100
+        prices_str = ", ".join(f"{p:.3f}" for p in c["prices"])
+        lines.append(
+            f"• {c['question']}\n"
+            f"  Market: `{c['market_id']}`\n"
+            f"  Outcome prices: [{prices_str}] (sum={c['total']:.3f})\n"
+            f"  Theoretical edge: {edge_pct:.2f}%\n"
+            f"  24h volume: ${c['volume']:.0f}\n"
+        )
+
+    return "\n".join(lines)
 
 
 async def track_polymarket_whales() -> str:
