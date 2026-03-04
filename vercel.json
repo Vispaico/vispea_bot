@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "functions": {
+    "app/main.py": {
+      "runtime": "python3.11"
+    }
+  },
+  "builds": [
+    {
+      "src": "app/main.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/webhook",
+      "dest": "app/main.py"
+    }
+  ]
+}
