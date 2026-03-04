@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, status
-from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, ApplicationBuilder
 
@@ -16,9 +15,6 @@ from app.handlers import register_handlers
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env.local", override=True)
 
 
 WEBHOOK_PATH = "/webhook"
