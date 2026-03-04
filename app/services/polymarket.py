@@ -136,49 +136,52 @@ async def scan_polymarket_arbitrage() -> str:
 
 async def track_polymarket_whales() -> str:
     """
-    Show top wallets by recent trading volume (simple whale discovery).
-
-    Phase 1: read-only.
-    We look at recent markets, aggregate volume by wallet (maker/taker),
-    and return the top few as a formatted list. [web:263][web:265]
+    Query the external Render worker for latest whale trades
+    and format them for Telegram.
     """
+    worker_url = os.getenv("POLYMARKET_WHALE_API_URL", "").strip()
+    if not worker_url:
+        return "🐋 Whale worker not configured. Set POLYMARKET_WHALE_API_URL in env."
+
+    url = worker_url.rstrip("/") + "/whales/latest"
+
     try:
-        markets = await _fetch_active_markets(limit=200)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
     except Exception as exc:
-        return f"⚠️ Error fetching Polymarket markets for whales: {exc}"
+        return f"🐋 Error fetching whales from worker: {exc}"
 
-    # For phase 1 we just use market-level fields as a proxy:
-    # - 'creator' (market creator)
-    # - 'volume24hr' as "influence" on that market.
-    # Later we will switch to trade-level WebSocket/user data. [web:268][web:272]
-    wallet_scores: dict[str, float] = {}
+    trades = data.get("trades") or []
+    min_usd = float(data.get("min_usd", 0.0))
 
-    for m in markets:
-        creator = m.get("creator") or m.get("creatorAddress") or ""
-        volume = float(m.get("volume24hr", 0.0))
+    if not trades:
+        return f"🐋 No whale trades above ~${min_usd:.0f} recorded yet."
 
-        if not creator or volume <= 0:
-            continue
+    lines = [
+        f"🐋 Latest Polymarket whale trades (≥ ~${min_usd:.0f} notional):\n"
+    ]
 
-        wallet_scores[creator] = wallet_scores.get(creator, 0.0) + volume
+    # Show up to 10 latest trades
+    for t in trades[:10]:
+        q = t.get("market_question", "Unknown market")
+        mid = t.get("market_id", "")
+        side = t.get("side", "")
+        price = float(t.get("price", 0.0))
+        size = float(t.get("size", 0.0))
+        notional = float(t.get("notional", 0.0))
+        trader = t.get("trader", "")
 
-    if not wallet_scores:
-        return "🐋 No whale-like activity detected from market data."
-
-    # Rank by total 24h volume across markets
-    ranked = sorted(wallet_scores.items(), key=lambda kv: kv[1], reverse=True)
-    top = ranked[:10]
-
-    lines = ["🐋 Top Polymarket wallets by aggregated 24h market volume (rough whale proxy):\n"]
-    for addr, vol in top:
-        lines.append(f"• `{addr}` — approx ${vol:.0f} 24h volume\n")
-
-    lines.append(
-        "\nPhase 1: using market creators as a rough proxy.\n"
-        "Next step: switch to trade-level data and real PnL / win-rate based ranking."
-    )
+        lines.append(
+            f"• `{trader}` {side} {size:.2f} @ {price:.3f} "
+            f"(~${notional:.0f})\n"
+            f"  Market: {q}\n"
+            f"  ID: `{mid}`\n"
+        )
 
     return "\n".join(lines)
+
 
 
 async def subscribe_polymarket_alerts() -> str:
