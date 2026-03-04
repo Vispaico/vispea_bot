@@ -67,3 +67,20 @@ def run_polling() -> None:
 
 if __name__ == "__main__":
     run_polling()
+
+@fastapi_app.post(WEBHOOK_PATH)
+async def webhook(request: Request):
+    ...
+    return {"ok": True}
+
+
+def run_polling() -> None:
+    ...
+
+
+if __name__ == "__main__":
+    run_polling()
+
+# For Vercel serverless (ASGI entrypoint)
+app = fastapi_app
+
