@@ -83,7 +83,7 @@ async def scan_polymarket_arbitrage() -> str:
     - Returns a human-readable summary for Telegram. [web:150][web:255]
     """
     try:
-        markets = await _fetch_active_markets(limit=100)
+        markets = await _fetch_active_markets(limit=200)
     except Exception as exc:
         return f"⚠️ Error fetching Polymarket markets: {exc}"
 
@@ -96,10 +96,6 @@ async def scan_polymarket_arbitrage() -> str:
 
         total = sum(prices)
         edge = 1.0 - total  # > 0 means potential mispricing
-
-        # Filter for “interesting” markets
-        if edge <= 0.02:  # at least 2% theoretical edge
-            continue
 
         question = m.get("question") or m.get("slug") or "Unknown market"
         volume = float(m.get("volume24hr", 0.0))
@@ -117,13 +113,13 @@ async def scan_polymarket_arbitrage() -> str:
         )
 
     if not candidates:
-        return "📊 No obvious Polymarket arb opportunities (sum of odds < 0.98) found right now."
+        return "📊 No markets returned from Polymarket."
 
-    # Sort by edge desc, then by volume desc
-    candidates.sort(key=lambda x: (x["edge"], x["volume"]), reverse=True)
-    top = candidates[:5]
+    # Sort by edge (absolute value) and volume
+    candidates.sort(key=lambda x: (abs(x["edge"]), x["volume"]), reverse=True)
+    top = candidates[:8]
 
-    lines = ["📊 Polymarket potential arb candidates (theoretical):\n"]
+    lines = ["📊 Polymarket markets ranked by theoretical edge (sum of outcome prices):\n"]
     for c in top:
         edge_pct = c["edge"] * 100
         prices_str = ", ".join(f"{p:.3f}" for p in c["prices"])
@@ -131,7 +127,7 @@ async def scan_polymarket_arbitrage() -> str:
             f"• {c['question']}\n"
             f"  Market: `{c['market_id']}`\n"
             f"  Outcome prices: [{prices_str}] (sum={c['total']:.3f})\n"
-            f"  Theoretical edge: {edge_pct:.2f}%\n"
+            f"  Theoretical edge: {edge_pct:+.2f}%\n"
             f"  24h volume: ${c['volume']:.0f}\n"
         )
 
